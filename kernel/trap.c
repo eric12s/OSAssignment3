@@ -15,6 +15,7 @@ extern char trampoline[], uservec[], userret[];
 void kernelvec();
 
 extern int devintr();
+extern pte_t *walk(pagetable_t pagetable, uint64 va, int alloc);
 
 void
 trapinit(void)
@@ -218,3 +219,32 @@ devintr()
   }
 }
 
+int cow_handler(pagetable_t pagetable, uint64 va) {
+  // TODO: Check the logic in the guide, Itamar didn't add it
+  uint64 vabase = PGROUNDDOWN(va);
+  pte_t *pte = walk(pagetable, vabase, 0);
+
+
+  if (vabase >= MAXVA | pte == 0 | (*pte & PTE_V) == 0 | (*pte & PTE_U) == 0) {
+    return -1;
+  }
+
+  if ((*pte & PTE_COW) == 0) {
+    return 1;
+  }
+
+  void* mem = kalloc();
+  if (mem == 0) {
+    return -1;
+  }
+
+  uint64 pa = PTE2PA(*pte);
+
+  memmove(mem, (void*)pa, PGSIZE);
+  uint64 flags = PTE_FLAGS(*pte);
+  kfree((void*)pa);
+  flags = (flags & ~PTE_COW) | PTE_W;
+  *pte = PA2PTE((uint64)mem) | flags;
+
+  return (uint64)mem;
+}
