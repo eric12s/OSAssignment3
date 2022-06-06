@@ -13,6 +13,7 @@ void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
+extern uint64 cas(volatile void *address, int prev, int next);
 
 struct run {
   struct run *next;
@@ -21,22 +22,27 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
+  uint64 count_of_pages[((PHYSTOP-KERNBASE) / PGSIZE)];
 } kmem;
 
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  memset(kmem.count_of_pages, 0, sizeof(kmem.count_of_pages));
   freerange(end, (void*)PHYSTOP);
 }
 
 void
 freerange(void *pa_start, void *pa_end)
 {
-  char *p;
-  p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+  unit64 index = (((uint64)p-KERNBASE) / PGSIZE);
+  unit64 pa_start_to_roundUp = (uint64)pa_start;
+  char *p = (char*)PGROUNDUP(pa_start_to_roundUp);
+  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE){
+    kmem.count_of_pages[index] = 1;
     kfree(p);
+  }
 }
 
 // Free the page of physical memory pointed at by v,
@@ -78,5 +84,27 @@ kalloc(void)
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
+    
+  if(r)
+    inc_ref_count((uint64)r);
+
   return (void*)r;
+}
+
+void inc_ref_count(uint64 pa){
+    uint64 place = pa - KERNBASE;
+    place = place / PGSIZE;
+    while(cas(kmem.count_of_pages + place, kmem.count_of_pages[place], kmem.count_of_pages[place] + 1));
+}
+
+void dec_ref_count(uint64 pa){
+    uint64 place = pa - KERNBASE;
+    place = place / PGSIZE;
+    while(cas(kmem.count_of_pages + place, kmem.count_of_pages[place], kmem.count_of_pages[place] - 1));
+}
+
+int get_ref_count(uint64 pa){
+    uint64 place = pa - KERNBASE;
+    place = entry / PGSIZE;
+    return kmem.count_of_pages[place];
 }
