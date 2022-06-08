@@ -48,14 +48,13 @@ void usertrap(void)
   // save user program counter.
   p->trapframe->epc = r_sepc();
 
-  if ((r_scause() == 13 || r_scause() == 15) && (cow_handler(p->pagetable, r_stval()) != 0))
-  {
-    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid); // TODO: Check if all print is needed
-    printf("sepc=%p stval=%p\n", r_sepc(), r_stval());                       // TODO: Check if all print is needed
-    p->killed = 1;
-  }
-
-  if (r_scause() == 8)
+  if(r_scause() == 13 || r_scause() == 15){
+        uint64 va = r_stval();
+        if(cow_handler(p->pagetable, va) != 0){
+            printf("usertrap: sepc=%p stval=%p\n", r_sepc(), r_stval());
+            p->killed = 1;
+        }
+    } else if (r_scause() == 8)
   {
     // system call
 
@@ -238,11 +237,10 @@ int devintr()
 
 int cow_handler(pagetable_t pagetable, uint64 va)
 {
-  // TODO: Check the logic in the guide, Itamar didn't add it
   uint64 vabase = PGROUNDDOWN(va);
-  pte_t *pte = walk(pagetable, vabase, 0);
+  pte_t *pte;
 
-  if (vabase >= MAXVA | pte == 0 | (*pte & PTE_V) == 0 | (*pte & PTE_U) == 0)
+  if ((vabase >= MAXVA) || ((pte = walk(pagetable, va, 0)) == 0) || ((*pte & PTE_V) == 0) || ((*pte & PTE_U) == 0))
   {
     return -1;
   }
@@ -260,11 +258,10 @@ int cow_handler(pagetable_t pagetable, uint64 va)
 
   uint64 pa = PTE2PA(*pte);
 
-  memmove(mem, (void *)pa, PGSIZE);
-  uint64 flags = PTE_FLAGS(*pte);
+  memmove(mem, (char*)pa, PGSIZE);
   kfree((void *)pa);
-  flags = (flags & ~PTE_COW) | PTE_W;
+  uint64 flags = ((PTE_FLAGS(*pte) & ~PTE_COW) | PTE_W);
   *pte = PA2PTE((uint64)mem) | flags;
 
-  return (uint64)mem;
+  return 0;
 }

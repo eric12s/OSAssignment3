@@ -323,7 +323,7 @@ int uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       uvmunmap(new, 0, i / PGSIZE, 1);
       return -1;
     }
-    increment_reference(pa);
+    inc_ref_count(pa);
     *pte = ((*pte) & (~PTE_W)) | PTE_COW;
   }
   return 0;

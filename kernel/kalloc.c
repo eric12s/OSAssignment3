@@ -17,32 +17,33 @@ extern uint64 cas(volatile void *address, int prev, int next);
 
 struct run
 {
-  struct run *next;
+    struct run *next;
 };
 
 struct
 {
-  struct spinlock lock;
-  struct run *freelist;
+    struct spinlock lock;
+    struct run *freelist;
   uint64 count_of_pages[((PHYSTOP - KERNBASE) / PGSIZE)];
 } kmem;
 
 void kinit()
 {
-  initlock(&kmem.lock, "kmem");
-  memset(kmem.count_of_pages, 0, sizeof(kmem.count_of_pages));
-  freerange(end, (void *)PHYSTOP);
+    initlock(&kmem.lock, "kmem");
+    memset(kmem.count_of_pages, 0, sizeof(kmem.count_of_pages));
+    freerange(end, (void *)PHYSTOP);
 }
 
 void freerange(void *pa_start, void *pa_end)
 {
-  char *p = (char *)PGROUNDUP((uint64)pa_start);
-  uint64 index = (((uint64)p - KERNBASE) / PGSIZE);
+  uint64 roundup_pa_start = PGROUNDUP((uint64)pa_start);
+  char *p = (char*)roundup_pa_start;
   for (; p + PGSIZE <= (char *)pa_end; p += PGSIZE)
   {
-    kmem.count_of_pages[index] = 1;
-    kfree(p);
-  }
+        uint64 index = (((uint64)p - KERNBASE) / PGSIZE);
+        kmem.count_of_pages[index] = 1;
+        kfree(p);
+    }
 }
 
 // Free the page of physical memory pointed at by v,
@@ -56,7 +57,8 @@ void kfree(void *pa)
   if (((uint64)pa % PGSIZE) != 0 || (char *)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  if (dec_ref_count(pa) > 0)
+  uint ref_count = dec_ref_count((uint64)pa);
+  if (ref_count > 0)
     return;
 
   // Fill with junk to catch dangling refs.
@@ -99,7 +101,8 @@ int inc_ref_count(uint64 pa)
   place = place / PGSIZE;
   while (cas(kmem.count_of_pages + place, kmem.count_of_pages[place], kmem.count_of_pages[place] + 1))
     ;
-  return get_ref_count(pa);
+  
+  return kmem.count_of_pages[place];
 }
 
 int dec_ref_count(uint64 pa)
@@ -108,12 +111,6 @@ int dec_ref_count(uint64 pa)
   place = place / PGSIZE;
   while (cas(kmem.count_of_pages + place, kmem.count_of_pages[place], kmem.count_of_pages[place] - 1))
     ;
-  return get_ref_count(pa);
-}
 
-int get_ref_count(uint64 pa)
-{
-  uint64 place = pa - KERNBASE;
-  place = place / PGSIZE;
   return kmem.count_of_pages[place];
 }

@@ -63,7 +63,6 @@ void ramdiskrw(struct buf *);
 void *kalloc(void);
 void kfree(void *);
 void kinit(void);
-int get_ref_count(uint64 pa);
 int inc_ref_count(uint64 pa);
 int dec_ref_count(uint64 pa);
 
